@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>PHIL7003 check-in scanner</title>
+<meta name="robots" content="noindex">
+<!-- html5-qrcode 2.3.8 (Apache-2.0), served from this site; CDN fallback is loaded in the script if missing -->
+<script src="html5-qrcode.min.js"></script>
+<style>
+  :root {
+    --ink: #142033; --panel: #1d2c45; --line: #33476a; --text: #eef2f8; --muted: #9fb0c9;
+    --admit: #0f7a43; --used: #f0a500; --reject: #b8202a; --fault: #4a3a8c;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--ink); color: var(--text);
+    font: 17px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  body { padding: env(safe-area-inset-top, 0px) 0 env(safe-area-inset-bottom, 0px); }
+  .wrap { max-width: 520px; margin: 0 auto; padding: 12px 14px 24px; }
+  header { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin-bottom: 10px; }
+  .door { font-size: 1.35rem; font-weight: 700; }
+  .count { font-size: 1.1rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .count b { color: var(--text); font-size: 1.5rem; }
+  .cam { position: relative; }
+  #reader { width: 100%; border-radius: 14px; overflow: hidden; background: #000; min-height: 260px; position: relative; }
+  #reader video { width: 100% !important; display: block; }
+  .row { display: flex; gap: 8px; margin-top: 12px; }
+  input, button { font: inherit; border-radius: 10px; }
+  input { flex: 1; min-width: 0; padding: 12px; border: 2px solid var(--line); background: var(--panel); color: var(--text); }
+  input:focus { outline: 3px solid #6fa3ff; outline-offset: 1px; }
+  button { padding: 12px 16px; border: 0; background: #e8eef8; color: var(--ink); font-weight: 700; cursor: pointer; }
+  button.big { width: 100%; padding: 18px; font-size: 1.2rem; margin-top: 14px; }
+  button.quiet { background: transparent; color: var(--muted); border: 1px solid var(--line); font-weight: 500; padding: 8px 12px; }
+  label { display: block; margin: 14px 0 6px; color: var(--muted); }
+  .tools { display: flex; gap: 8px; justify-content: space-between; margin-top: 18px; }
+  .hint { color: var(--muted); font-size: .92rem; margin-top: 10px; }
+  .hidden { display: none !important; }
+  #net { font-size: .9rem; color: var(--muted); }
+  #net.bad { color: #ff9aa0; font-weight: 700; }
+
+  /* Result overlay: colour + word + sound, never colour alone */
+  #result { position: fixed; inset: 0; display: flex; flex-direction: column; justify-content: center;
+    padding: calc(24px + env(safe-area-inset-top, 0px)) 24px calc(24px + env(safe-area-inset-bottom, 0px));
+    text-align: center; z-index: 10; }
+  #result .verdict { font-size: clamp(2.6rem, 13vw, 4.5rem); font-weight: 800; line-height: 1.05; }
+  #result .name { font-size: clamp(1.6rem, 8vw, 2.4rem); font-weight: 700; margin-top: 18px; }
+  #result .seat { font-size: clamp(1.4rem, 7vw, 2rem); margin-top: 8px; }
+  #result .detail { font-size: 1.15rem; margin-top: 14px; opacity: .92; }
+  #result .tap { margin-top: 28px; font-size: 1rem; opacity: .8; }
+  #result.ACCEPT { background: var(--admit); color: #fff; }
+  #result.ALREADY { background: var(--used); color: #1a1300; }
+  #result.INVALID { background: var(--reject); color: #fff; }
+  #result.FAULT { background: var(--fault); color: #fff; }
+  #checking { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    background: rgba(20,32,51,.78); font-size: 1.5rem; font-weight: 700; z-index: 5; }
+  @media (prefers-reduced-motion: no-preference) { #result { animation: pop .12s ease-out; } }
+  @keyframes pop { from { opacity: .4; transform: scale(.98); } to { opacity: 1; transform: none; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- Setup -->
+  <section id="setup">
+    <h1 style="font-size:1.5rem;margin:6px 0 4px">Exam check-in</h1>
+    <p class="hint">Set up this phone once. The details stay on this phone.</p>
+    <div id="apiBox">
+      <label for="api">Check-in server address</label>
+      <input id="api" placeholder="https://script.google.com/macros/s/…/exec" autocomplete="off">
+    </div>
+    <label for="door">Door name</label>
+    <input id="door" placeholder="e.g. Door A" autocomplete="off">
+    <label for="pin">Scanner PIN</label>
+    <input id="pin" inputmode="numeric" autocomplete="off">
+    <button class="big" id="startBtn">Test connection and start scanning</button>
+    <p id="setupMsg" class="hint"></p>
+  </section>
+
+  <!-- Scanning -->
+  <section id="scan" class="hidden">
+    <header>
+      <span class="door" id="doorLbl"></span>
+      <span class="count"><b id="cIn">–</b> / <span id="cTotal">–</span> in</span>
+    </header>
+    <div class="cam"><div id="reader"></div><div id="checking" class="hidden">Checking…</div></div>
+    <div class="row">
+      <input id="manual" placeholder="Backup code or UID" autocomplete="off" autocapitalize="characters">
+      <button id="manualBtn">Check in</button>
+    </div>
+    <div class="tools">
+      <button class="quiet" id="undoBtn">Undo a check-in</button>
+      <span id="net">Online</span>
+      <button class="quiet" id="settingsBtn">Settings</button>
+    </div>
+    <p class="hint">Always compare the UID on screen with the student card.</p>
+  </section>
+</div>
+
+<div id="result" class="hidden" role="alert"></div>
+
+<script>
+(() => {
+  const IN_GAS = typeof google !== 'undefined' && google.script && google.script.run;
+  const $ = id => document.getElementById(id);
+  const store = {
+    get(k) { try { return localStorage.getItem('exk_' + k) || ''; } catch (e) { return ''; } },
+    set(k, v) { try { localStorage.setItem('exk_' + k, v); } catch (e) {} },
+  };
+  let device = store.get('device');
+  if (!device) { device = 'ph-' + Math.random().toString(36).slice(2, 8); store.set('device', device); }
+
+  const params = new URLSearchParams(location.search);
+  $('api').value = params.get('api') || store.get('api');
+  $('door').value = params.get('door') || store.get('door');
+  $('pin').value = store.get('pin');
+  if (IN_GAS) $('apiBox').classList.add('hidden');
+
+  let scanner = null, busy = false, lastCode = '', lastAt = 0, audio = null, wake = null;
+
+  /* ── API ── */
+  function callApi(req) {
+    req = Object.assign({ pin: store.get('pin'), door: store.get('door'), device }, req);
+    const timeout = new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 12000));
+    let call;
+    if (IN_GAS) {
+      call = new Promise((res, rej) => google.script.run.withSuccessHandler(res).withFailureHandler(rej).api(req));
+    } else {
+      // text/plain body = "simple" request, so no CORS preflight against Apps Script
+      call = fetch(store.get('api'), { method: 'POST', body: JSON.stringify(req), redirect: 'follow' })
+        .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); });
+    }
+    return Promise.race([call, timeout]);
+  }
+
+  /* ── Feedback ── */
+  function tone(seq) {
+    if (!audio) return;
+    let t = audio.currentTime;
+    seq.forEach(([freq, dur, gap]) => {
+      const o = audio.createOscillator(), g = audio.createGain();
+      o.type = freq < 300 ? 'square' : 'sine'; o.frequency.value = freq;
+      g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.5, t + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      o.connect(g).connect(audio.destination); o.start(t); o.stop(t + dur + 0.02);
+      t += dur + (gap || 0.08);
+    });
+  }
+  const SOUNDS = {
+    ACCEPT: () => { tone([[1046, 0.18]]); navigator.vibrate && navigator.vibrate(120); },
+    ALREADY: () => { tone([[660, 0.15], [660, 0.15], [660, 0.15]]); navigator.vibrate && navigator.vibrate([150, 80, 150, 80, 150]); },
+    INVALID: () => { tone([[180, 0.7]]); navigator.vibrate && navigator.vibrate(600); },
+    FAULT: () => { tone([[330, 0.25], [220, 0.4]]); navigator.vibrate && navigator.vibrate([300, 100, 300]); },
+  };
+
+  const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+  function show(r) {
+    const el = $('result');
+    let cls, html, autoClose = 0;
+    if (r.result === 'ACCEPT') {
+      cls = 'ACCEPT'; autoClose = 2500;
+      html = `<div class="verdict">✔ Admit</div><div class="name">Seat ${esc(r.seat)}</div>` +
+             `<div class="seat">UID ${esc(r.uid)}</div>` +
+             `<div class="detail">Check the UID on the student card${r.method && r.method !== 'QR' ? ' · entered by ' + (r.method === 'UID' ? 'UID' : 'backup code') : ''}</div>`;
+      if (r.stats) { $('cIn').textContent = r.stats.in; $('cTotal').textContent = r.stats.total; }
+    } else if (r.result === 'ALREADY') {
+      cls = 'ALREADY';
+      html = `<div class="verdict">⚠ Already used</div><div class="name">Seat ${esc(r.seat)}</div>` +
+             `<div class="detail">Checked in at ${esc(r.at)}${r.atDoor ? ' · ' + esc(r.atDoor) : ''}<br>UID ${esc(r.uid)}</div>` +
+             `<div class="detail">Do not admit. Check the ID card and send to the exam lead.</div>`;
+    } else if (r.result === 'INVALID') {
+      cls = 'INVALID';
+      html = `<div class="verdict">✖ Reject</div><div class="detail">${esc(r.msg || 'Not a valid ticket')}</div>` +
+             `<div class="detail">Try the backup code or the UID from the student card, or use the paper list.</div>`;
+    } else {
+      cls = 'FAULT';
+      html = `<div class="verdict">Not recorded</div><div class="detail">${esc(r.msg || 'No connection')}</div>` +
+             `<div class="detail">Scan again. If it keeps failing, use the paper list.</div>`;
+    }
+    el.className = cls; el.innerHTML = html + '<div class="tap">Tap anywhere for the next student</div>';
+    (SOUNDS[cls] || (() => {}))();
+    const done = () => { el.className = 'hidden'; el.onclick = null; busy = false; lastAt = Date.now(); };
+    el.onclick = done;
+    if (autoClose) setTimeout(() => { if (el.className === 'ACCEPT') done(); }, autoClose);
+  }
+
+  async function submit(code) {
+    if (busy) return;
+    code = String(code || '').trim();
+    if (!code) return;
+    if (code === lastCode && Date.now() - lastAt < 6000) return; // same QR still in view
+    busy = true; lastCode = code;
+    $('checking').classList.remove('hidden');
+    try {
+      const r = await callApi({ action: 'checkin', code });
+      setNet(true);
+      if (r.result === 'AUTH' || r.result === 'CLOSED' || r.result === 'BUSY' || r.result === 'ERROR') show({ result: 'FAULT', msg: r.msg });
+      else show(r);
+    } catch (e) {
+      setNet(false);
+      show({ result: 'FAULT', msg: e.message === 'timeout' ? 'Server did not answer in 12 s' : 'No connection' });
+    } finally {
+      $('checking').classList.add('hidden');
+    }
+  }
+
+  function setNet(ok) { $('net').textContent = ok ? 'Online' : 'Offline'; $('net').className = ok ? '' : 'bad'; }
+
+  async function refreshStats() {
+    try { const r = await callApi({ action: 'stats' }); if (r.stats) { $('cIn').textContent = r.stats.in; $('cTotal').textContent = r.stats.total; } setNet(true); }
+    catch (e) { setNet(false); }
+  }
+
+  /* ── Start ── */
+  $('startBtn').onclick = async () => {
+    store.set('api', $('api').value.trim()); store.set('door', $('door').value.trim() || 'Door');
+    store.set('pin', $('pin').value.trim());
+    try { audio = audio || new (window.AudioContext || window.webkitAudioContext)(); audio.resume(); tone([[880, 0.08]]); } catch (e) {}
+    $('setupMsg').textContent = 'Connecting…';
+    try {
+      const r = await callApi({ action: 'ping' });
+      if (r.result !== 'OK') { $('setupMsg').textContent = r.msg || 'Server refused the connection'; return; }
+      $('cIn').textContent = r.stats.in; $('cTotal').textContent = r.stats.total;
+    } catch (e) { $('setupMsg').textContent = 'Cannot reach the server: ' + e.message; return; }
+    $('doorLbl').textContent = store.get('door');
+    $('setup').classList.add('hidden'); $('scan').classList.remove('hidden');
+    try { if ('wakeLock' in navigator) wake = await navigator.wakeLock.request('screen'); } catch (e) {}
+    startCamera();
+    setInterval(refreshStats, 30000);
+  };
+
+  function loadLib() {
+    if (window.Html5Qrcode) return Promise.resolve();
+    return new Promise((res, rej) => {
+      const sc = document.createElement('script');
+      sc.src = 'https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js';
+      sc.onload = res; sc.onerror = () => rej(new Error('scanner library failed to load'));
+      document.head.appendChild(sc);
+    });
+  }
+
+  async function startCamera() {
+    if (scanner) return;
+    try { await loadLib(); } catch (e) {
+      $('reader').insertAdjacentHTML('beforeend', `<p style="padding:16px">${esc(e.message)}. Use the code box below.</p>`); return;
+    }
+    scanner = new Html5Qrcode('reader', { verbose: false });
+    scanner.start({ facingMode: 'environment' }, { fps: 12, qrbox: (w, h) => { const s = Math.floor(Math.min(w, h) * 0.75); return { width: s, height: s }; } },
+      text => submit(text), () => {})
+      .catch(err => { $('reader').insertAdjacentHTML('beforeend', `<p style="padding:16px">Camera unavailable: ${esc(err)}. Use the code box below.</p>`); });
+  }
+
+  $('manualBtn').onclick = () => { submit($('manual').value); $('manual').value = ''; };
+  $('manual').addEventListener('keydown', e => { if (e.key === 'Enter') $('manualBtn').click(); });
+  $('settingsBtn').onclick = () => { $('scan').classList.add('hidden'); $('setup').classList.remove('hidden'); };
+  $('undoBtn').onclick = async () => {
+    const uid = prompt('UID to un-check-in:'); if (!uid) return;
+    const adminPin = prompt('Admin PIN:'); if (!adminPin) return;
+    try { const r = await callApi({ action: 'undo', uid, adminPin }); alert(r.msg || r.result); refreshStats(); }
+    catch (e) { alert('Failed: ' + e.message); }
+  };
+  document.addEventListener('visibilitychange', async () => {
+    if (document.visibilityState === 'visible' && 'wakeLock' in navigator && scanner) { try { wake = await navigator.wakeLock.request('screen'); } catch (e) {} }
+  });
+})();
+</script>
+</body>
+</html>
