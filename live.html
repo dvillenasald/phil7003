@@ -63,6 +63,11 @@
   #timer.warn .t { color: var(--accent); }
   #timer.done .t { font-size: clamp(4rem, 12vw, 13rem); }
   body.testmode #timer { display: flex; }
+  @media (prefers-reduced-motion: no-preference) {
+    body.testmode #timer { animation: fadein 1.2s ease-out; }
+    @keyframes fadein { from { opacity: 0; transform: scale(.96); } to { opacity: 1; transform: none; } }
+  }
+  #previewTag { position: fixed; left: 50%; bottom: 8px; transform: translateX(-50%); background: #f0a500; color: #1a1300; font-weight: 800; padding: 4px 12px; border-radius: 6px; font-size: 14px; z-index: 5; }
   body.testmode #mapwrap, body.testmode header .count, body.testmode header .clock, body.testmode footer .legend { display: none; }
 </style>
 </head>
@@ -122,6 +127,16 @@
   var DOORS = Date.UTC(2026, 9, 26, 5, 0, 0);       // 13:00 Hong Kong time (public)
   var TEST_START = Date.UTC(2026, 9, 26, 5, 10, 0);  // default 13:10 HK; overridden by Board!B2
   var TEST_MIN = 90;                                  // default; overridden by Board!B3
+  // Preview: live.html?…&preview=13:09:45 pretends it is that Hong Kong time on Monday (clock only, data stays live).
+  var OFFSET = 0;
+  (function () {
+    var m = /^(\d{1,2}):(\d{2})(?::(\d{2}))?$/.exec(params.get('preview') || '');
+    if (!m) return;
+    OFFSET = Date.UTC(2026, 9, 26, +m[1] - 8, +m[2], +(m[3] || 0)) - Date.now();
+    var tag = document.createElement('div'); tag.id = 'previewTag'; tag.textContent = 'PREVIEW ' + m[0];
+    document.body.appendChild(tag);
+  })();
+  function nowMs() { return Date.now() + OFFSET; }
   function hkToUtc(hm) {
     var m = /^(\d{1,2}):(\d{2})$/.exec(hm || ''); if (!m) return null;
     var h = +m[1], mi = +m[2]; if (h > 23 || mi > 59) return null;
@@ -225,7 +240,7 @@
     return (h ? h + ':' + (m < 10 ? '0' : '') : '') + m + ':' + (sec < 10 ? '0' : '') + sec;
   }
   function tick() {
-    var now = Date.now(), box = $('clockBox'), end = TEST_START + TEST_MIN * 60000;
+    var now = nowMs(), box = $('clockBox'), end = TEST_START + TEST_MIN * 60000;
     if (now < DOORS) {
       document.body.classList.remove('testmode');
       $('clock').textContent = fmt(DOORS - now);
