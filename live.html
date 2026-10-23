@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>PHIL7003 · Live check-in</title>
+<style>
+  :root {
+    --bg: #0e1724; --panel: #152234; --line: #2a3b55; --text: #eef2f8; --muted: #9aaac0;
+    --accent: #e0612b; --seat-empty: #3f5a80; --seat-free: #162131; --stage: #22344f;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, "PingFang HK", sans-serif; }
+  body { padding: calc(18px + env(safe-area-inset-top, 0px)) 28px calc(18px + env(safe-area-inset-bottom, 0px)); }
+  .hidden { display: none !important; }
+
+  /* setup */
+  #setup { max-width: 520px; margin: 8vh auto; background: var(--panel); border-radius: 16px; padding: 28px; }
+  #setup h1 { margin: 0 0 6px; font-size: 1.5rem; }
+  #setup p { color: var(--muted); margin: 0 0 16px; }
+  label { display: block; color: var(--muted); margin: 14px 0 6px; font-size: .95rem; }
+  input { width: 100%; font: inherit; padding: 12px; border-radius: 10px; border: 2px solid var(--line); background: #0f1a2a; color: var(--text); }
+  button { font: inherit; font-weight: 700; padding: 14px 18px; border: 0; border-radius: 10px; background: var(--accent); color: #fff; cursor: pointer; margin-top: 18px; width: 100%; }
+  #setupMsg { color: #ffb4a0; min-height: 1.4em; }
+
+  /* board */
+  #board { height: 100%; display: grid; grid-template-rows: auto auto 1fr auto; gap: 14px; }
+  #codeBox { display: flex; align-items: center; justify-content: center; gap: 28px; background: var(--accent); color: #fff; border-radius: 14px; padding: 12px 24px; }
+  #codeBox .k { font-size: clamp(1rem, 1.8vw, 1.9rem); font-weight: 700; }
+  #codeBox .v { font-size: clamp(2.4rem, 5vw, 5rem); font-weight: 800; letter-spacing: .12em; font-variant-numeric: tabular-nums; }
+  header { display: grid; grid-template-columns: 1fr auto 1fr; align-items: end; gap: 24px; }
+  .eyebrow { font-size: clamp(.8rem, 1.1vw, 1.05rem); letter-spacing: .16em; text-transform: uppercase; color: var(--muted); }
+  .title { font-size: clamp(1.4rem, 2.4vw, 2.4rem); font-weight: 800; margin-top: 4px; }
+  .count { text-align: center; }
+  .count .num { font-size: clamp(3.2rem, 7.5vw, 7.5rem); font-weight: 800; line-height: .95; font-variant-numeric: tabular-nums; }
+  .count .num span { color: var(--muted); font-weight: 600; }
+  .count .lbl { font-size: clamp(.9rem, 1.3vw, 1.3rem); color: var(--muted); margin-top: 6px; }
+  .bar { height: 10px; background: var(--seat-free); border-radius: 6px; overflow: hidden; margin-top: 12px; }
+  .bar i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .8s ease; }
+  .clock { text-align: right; }
+  .clock .t { font-size: clamp(2.6rem, 5.5vw, 5.6rem); font-weight: 800; line-height: .95; font-variant-numeric: tabular-nums; }
+  .clock .lbl { font-size: clamp(.9rem, 1.3vw, 1.3rem); color: var(--muted); margin-top: 6px; }
+  .clock.urgent .t { color: var(--accent); }
+
+  #mapwrap { min-height: 0; display: flex; align-items: center; justify-content: center; }
+  #mapwrap svg { width: 100%; height: 100%; max-height: 100%; }
+  .seat { transition: fill .6s ease; }
+  @media (prefers-reduced-motion: no-preference) {
+    .pop { animation: pop 2.4s ease-out; transform-box: fill-box; transform-origin: center; }
+    @keyframes pop { 0% { transform: scale(1.9); fill: #ffd7c4; } 35% { transform: scale(1.1); } 100% { transform: scale(1); } }
+  }
+  footer { display: flex; justify-content: space-between; gap: 18px; color: var(--muted); font-size: clamp(.85rem, 1.15vw, 1.15rem); }
+  footer b { color: var(--text); }
+  .legend { display: flex; gap: 18px; align-items: center; flex-wrap: wrap; }
+  .sw { display: inline-block; width: 14px; height: 14px; border-radius: 3px; vertical-align: -2px; margin-right: 6px; }
+  #status.bad { color: #ffb4a0; }
+</style>
+</head>
+<body>
+
+<section id="setup">
+  <h1>Live check-in board</h1>
+  <p>For the projector. Shows seats filling in; no names.</p>
+  <label for="api">Check-in server address</label>
+  <input id="api" autocomplete="off" placeholder="https://script.google.com/macros/s/…/exec">
+  <label for="pin">Board PIN</label>
+  <input id="pin" type="password" inputmode="numeric" autocomplete="off">
+  <button id="go">Start</button>
+  <p id="setupMsg"></p>
+</section>
+
+<section id="board" class="hidden">
+  <header>
+    <div>
+      <div class="eyebrow">PHIL7003 · Yuet Ming Auditorium</div>
+      <div class="title">First Written Test</div>
+    </div>
+    <div class="count">
+      <div class="num"><b id="in">0</b><span> / <span id="total">209</span></span></div>
+      <div class="lbl">checked in</div>
+      <div class="bar"><i id="bar"></i></div>
+    </div>
+    <div class="clock" id="clockBox">
+      <div class="t" id="clock">--:--</div>
+      <div class="lbl" id="clockLbl">until the test begins at 13:00</div>
+    </div>
+  </header>
+  <div id="codeBox" class="hidden" aria-live="polite"><span class="k">MATCHA Writer activity code</span><span class="v" id="code"></span></div>
+  <div id="mapwrap"></div>
+  <footer>
+    <div class="legend">
+      <span><i class="sw" style="background: var(--accent)"></i>Checked in</span>
+      <span><i class="sw" style="background: var(--seat-empty)"></i>Waiting</span>
+      <span id="doors"></span>
+    </div>
+    <div id="status">Connecting…</div>
+  </footer>
+</section>
+
+<script>
+(function () {
+  var $ = function (id) { return document.getElementById(id); };
+  var store = {
+    get: function (k) { try { return localStorage.getItem('exk_board_' + k) || ''; } catch (e) { return ''; } },
+    set: function (k, v) { try { localStorage.setItem('exk_board_' + k, v); } catch (e) {} }
+  };
+  var params = new URLSearchParams(location.search);
+  $('api').value = params.get('api') || store.get('api');
+  $('pin').value = store.get('pin');
+
+  var START = Date.UTC(2026, 9, 26, 5, 0, 0); // 13:00 Hong Kong time
+  var POLL_MS = 8000;
+  var seen = {}, first = true, failures = 0;
+
+  // ── Map geometry (same numbering as the venue: seat 1 right, 24 left; stage at top) ──
+  var C = 30, G = 6, P = C + G, L = 70, AISLE = 44, TOP = 86;
+  var xLeft = L, xCenter = xLeft + 6 * P + AISLE, xRight = xCenter + 12 * P + AISLE;
+  var W = xRight + 6 * P + L - G, H = TOP + 15 * P + 10;
+  var ROWS = 'ABCDEFGHIJKLMNO';
+  function colX(n) { return n >= 19 ? xLeft + (24 - n) * P : n >= 7 ? xCenter + (18 - n) * P : xRight + (6 - n) * P; }
+  function unusable(r, n) { return (r === 'O' && (n <= 6 || n >= 19)) || (r === 'A' && ((n >= 16 && n <= 18) || (n >= 7 && n <= 9))); }
+
+  function buildMap(assigned) {
+    var NS = 'http://www.w3.org/2000/svg';
+    var svg = document.createElementNS(NS, 'svg');
+    svg.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
+    svg.setAttribute('role', 'img');
+    svg.setAttribute('aria-label', 'Auditorium seat map filling in as students check in');
+    var add = function (tag, attrs, text) {
+      var el = document.createElementNS(NS, tag);
+      for (var k in attrs) el.setAttribute(k, attrs[k]);
+      if (text) el.textContent = text;
+      svg.appendChild(el); return el;
+    };
+    add('rect', { x: xCenter - 60, y: 6, width: 12 * P + 120 - G, height: 40, rx: 8, fill: 'var(--stage)' });
+    add('text', { x: W / 2, y: 33, 'text-anchor': 'middle', 'font-size': 18, 'font-weight': 800, fill: '#c9d4e4', 'letter-spacing': 4 }, 'STAGE');
+    // side doors, level with row A
+    [['Left door', 6, 'start'], ['Right door', W - 6, 'end']].forEach(function (d, i) {
+      add('rect', { x: i === 0 ? 6 : W - 16, y: TOP - 8, width: 10, height: C + 16, rx: 3, fill: '#5d6f8a' });
+      add('text', { x: d[1], y: TOP - 18, 'text-anchor': d[2], 'font-size': 14, fill: '#9aaac0' }, d[0]);
+    });
+    var set = {}; assigned.forEach(function (s) { set[s] = true; });
+    for (var ri = 0; ri < 15; ri++) {
+      var r = ROWS[ri], y = TOP + ri * P;
+      add('text', { x: L - 22, y: y + 21, 'text-anchor': 'middle', 'font-size': 15, 'font-weight': 700, fill: '#7f90a8' }, r);
+      add('text', { x: W - L + 16, y: y + 21, 'text-anchor': 'middle', 'font-size': 15, 'font-weight': 700, fill: '#7f90a8' }, r);
+      for (var n = 24; n >= 1; n--) {
+        if (unusable(r, n)) continue;
+        var id = r + (n < 10 ? '0' : '') + n;
+        var isAssigned = !!set[id];
+        add('rect', { id: 's-' + id, class: 'seat', x: colX(n), y: y, width: C, height: C, rx: 6,
+          fill: isAssigned ? 'var(--seat-empty)' : 'var(--seat-free)' });
+      }
+    }
+    $('mapwrap').innerHTML = '';
+    $('mapwrap').appendChild(svg);
+  }
+
+  function render(d) {
+    if (first) buildMap(d.assigned || []);
+    var code = String(d.code || '').trim();
+    $('code').textContent = code;
+    $('codeBox').classList.toggle('hidden', !code);
+    $('in').textContent = d.in;
+    $('total').textContent = d.total;
+    $('bar').style.width = (d.total ? Math.round(100 * d.in / d.total) : 0) + '%';
+    (d.filled || []).forEach(function (s) {
+      if (seen[s]) return;
+      seen[s] = true;
+      var el = document.getElementById('s-' + s);
+      if (!el) return;
+      el.setAttribute('fill', 'var(--accent)');
+      if (!first) { el.classList.remove('pop'); void el.getBoundingClientRect(); el.classList.add('pop'); }
+    });
+    var parts = [];
+    Object.keys(d.byDoor || {}).sort().forEach(function (k) { parts.push(k + ' <b>' + d.byDoor[k] + '</b>'); });
+    $('doors').innerHTML = parts.join(' · ');
+    first = false;
+  }
+
+  function call() {
+    var ctl = ('AbortController' in window) ? new AbortController() : null;
+    var timer = setTimeout(function () { if (ctl) ctl.abort(); }, 15000);
+    return fetch(store.get('api'), { method: 'POST', body: JSON.stringify({ action: 'board', pin: store.get('pin') }), redirect: 'follow', signal: ctl ? ctl.signal : undefined })
+      .then(function (r) { clearTimeout(timer); if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); });
+  }
+
+  function poll() {
+    call().then(function (d) {
+      if (d.result !== 'OK') throw new Error(d.msg || d.result);
+      failures = 0;
+      render(d);
+      var t = new Date();
+      $('status').className = '';
+      $('status').textContent = 'Live · updated ' + t.toLocaleTimeString('en-GB', { timeZone: 'Asia/Hong_Kong', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    }).catch(function (e) {
+      failures++;
+      $('status').className = 'bad';
+      $('status').textContent = 'Reconnecting… (' + e.message + ')';
+    }).then(function () { setTimeout(poll, failures ? Math.min(30000, POLL_MS * (1 + failures)) : POLL_MS); });
+  }
+
+  function tick() {
+    var ms = START - Date.now();
+    var box = $('clockBox');
+    if (ms > 0) {
+      var s = Math.ceil(ms / 1000), h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+      $('clock').textContent = (h ? h + ':' + (m < 10 ? '0' : '') : '') + m + ':' + (sec < 10 ? '0' : '') + sec;
+      $('clockLbl').textContent = 'until the test begins at 13:00';
+      box.classList.toggle('urgent', ms <= 5 * 60 * 1000);
+    } else {
+      $('clock').textContent = '13:00';
+      $('clockLbl').textContent = 'Please take your seat · open MATCHA Writer';
+      box.classList.remove('urgent');
+    }
+  }
+
+  $('go').onclick = function () {
+    store.set('api', $('api').value.trim());
+    store.set('pin', $('pin').value.trim());
+    $('setupMsg').textContent = 'Connecting…';
+    call().then(function (d) {
+      if (d.result !== 'OK') { $('setupMsg').textContent = d.msg || 'Server refused the connection'; return; }
+      $('setup').classList.add('hidden');
+      $('board').classList.remove('hidden');
+      render(d);
+      setTimeout(poll, POLL_MS);
+      tick(); setInterval(tick, 1000);
+      try { if (document.documentElement.requestFullscreen) document.documentElement.requestFullscreen(); } catch (e) {}
+      try { if (navigator.wakeLock) navigator.wakeLock.request('screen'); } catch (e) {}
+    }).catch(function (e) { $('setupMsg').textContent = 'Cannot reach the server: ' + e.message; });
+  };
+})();
+</script>
+</body>
+</html>
