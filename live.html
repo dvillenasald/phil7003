@@ -56,6 +56,14 @@
   .legend { display: flex; gap: 18px; align-items: center; flex-wrap: wrap; }
   .sw { display: inline-block; width: 14px; height: 14px; border-radius: 3px; vertical-align: -2px; margin-right: 6px; }
   #status.bad { color: #ffb4a0; }
+  #timer { display: none; flex-direction: column; align-items: center; justify-content: center; text-align: center; min-height: 0; }
+  #timer .lbl { font-size: clamp(1.4rem, 3vw, 3rem); color: var(--muted); letter-spacing: .08em; text-transform: uppercase; }
+  #timer .t { font-size: clamp(6rem, 22vw, 24rem); font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; }
+  #timer .sub { font-size: clamp(1rem, 1.8vw, 1.8rem); color: var(--muted); margin-top: 10px; }
+  #timer.warn .t { color: var(--accent); }
+  #timer.done .t { font-size: clamp(4rem, 12vw, 13rem); }
+  body.testmode #timer { display: flex; }
+  body.testmode #mapwrap, body.testmode header .count, body.testmode header .clock, body.testmode footer .legend { display: none; }
 </style>
 </head>
 <body>
@@ -89,6 +97,7 @@
   </header>
   <div id="codeBox" class="hidden" aria-live="polite"><span class="k">MATCHA Writer activity code</span><span class="v" id="code"></span></div>
   <div id="mapwrap"></div>
+  <div id="timer"><div class="lbl" id="timerLbl">Time remaining</div><div class="t" id="timerT">1:30:00</div><div class="sub" id="timerSub"></div></div>
   <footer>
     <div class="legend">
       <span><i class="sw" style="background: var(--accent)"></i>Checked in</span>
@@ -110,7 +119,14 @@
   $('api').value = params.get('api') || store.get('api');
   $('pin').value = store.get('pin');
 
-  var START = Date.UTC(2026, 9, 26, 5, 0, 0); // 13:00 Hong Kong time
+  var DOORS = Date.UTC(2026, 9, 26, 5, 0, 0);       // 13:00 Hong Kong time (public)
+  var TEST_START = Date.UTC(2026, 9, 26, 5, 10, 0);  // default 13:10 HK; overridden by Board!B2
+  var TEST_MIN = 90;                                  // default; overridden by Board!B3
+  function hkToUtc(hm) {
+    var m = /^(\d{1,2}):(\d{2})$/.exec(hm || ''); if (!m) return null;
+    var h = +m[1], mi = +m[2]; if (h > 23 || mi > 59) return null;
+    return Date.UTC(2026, 9, 26, h - 8, mi, 0);
+  }
   var POLL_MS = 8000;
   var seen = {}, first = true, failures = 0;
 
@@ -160,6 +176,8 @@
 
   function render(d) {
     if (first) buildMap(d.assigned || []);
+    var st = hkToUtc(String(d.start || '').trim()); if (st) TEST_START = st;
+    var mins = parseInt(d.minutes, 10); if (mins > 0 && mins <= 600) TEST_MIN = mins;
     var code = String(d.code || '').trim();
     $('code').textContent = code;
     $('codeBox').classList.toggle('hidden', !code);
@@ -202,18 +220,36 @@
     }).then(function () { setTimeout(poll, failures ? Math.min(30000, POLL_MS * (1 + failures)) : POLL_MS); });
   }
 
+  function fmt(ms) {
+    var s = Math.max(0, Math.ceil(ms / 1000)), h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+    return (h ? h + ':' + (m < 10 ? '0' : '') : '') + m + ':' + (sec < 10 ? '0' : '') + sec;
+  }
   function tick() {
-    var ms = START - Date.now();
-    var box = $('clockBox');
-    if (ms > 0) {
-      var s = Math.ceil(ms / 1000), h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
-      $('clock').textContent = (h ? h + ':' + (m < 10 ? '0' : '') : '') + m + ':' + (sec < 10 ? '0' : '') + sec;
+    var now = Date.now(), box = $('clockBox'), end = TEST_START + TEST_MIN * 60000;
+    if (now < DOORS) {
+      document.body.classList.remove('testmode');
+      $('clock').textContent = fmt(DOORS - now);
       $('clockLbl').textContent = 'until the test begins at 13:00';
-      box.classList.toggle('urgent', ms <= 5 * 60 * 1000);
-    } else {
+      box.classList.toggle('urgent', DOORS - now <= 5 * 60 * 1000);
+    } else if (now < TEST_START) {
+      document.body.classList.remove('testmode');
       $('clock').textContent = '13:00';
       $('clockLbl').textContent = 'Please take your seat · open MATCHA Writer';
       box.classList.remove('urgent');
+    } else if (now < end) {
+      document.body.classList.add('testmode');
+      $('timerLbl').textContent = 'Time remaining';
+      $('timerT').textContent = fmt(end - now);
+      $('timerSub').textContent = '';
+      $('timer').classList.toggle('warn', end - now <= 10 * 60 * 1000);
+      $('timer').classList.remove('done');
+    } else {
+      document.body.classList.add('testmode');
+      $('timerLbl').textContent = '';
+      $('timerT').textContent = 'Time is up';
+      $('timerSub').textContent = '';
+      $('timer').classList.add('warn');
+      $('timer').classList.add('done');
     }
   }
 
