@@ -2392,7 +2392,7 @@ var qrcode = function() {
   if (!m) {
     app.innerHTML = '<div class="error"><h1 style="font-size:1.3rem;margin-top:0">Ticket link incomplete</h1>' +
       '<p>Please open the ticket link directly from your email again. If it still does not work, ' +
-      'come to the rear door with your HKU student card; the invigilator can check you in by UID.</p></div>';
+      'come to either door beside the stage with your HKU student card; the invigilator can check you in by UID.</p></div>';
     return;
   }
   var row = m[1], num = parseInt(m[2], 10), seatId = m[1] + m[2], token = m[3], code = m[4];
@@ -2414,7 +2414,7 @@ var qrcode = function() {
       '<div class="rowseat"><div>Row ' + row + '</div><div>Seat ' + num + '</div></div></div>' +
       '<div class="facts">' +
         '<div><div class="label">Date</div><div class="v">' + esc(CONFIG.DATE) + '</div></div>' +
-        '<div><div class="label">Enter by</div><div class="v">Rear door, ' + door + ' side</div></div>' +
+        '<div><div class="label">Enter by</div><div class="v">Side door by the stage, ' + door + '</div></div>' +
         '<div class="wide"><div class="label">Time</div><div class="v">' + esc(CONFIG.TIME) + '</div></div>' +
         '<div class="wide"><div class="label">Venue</div><div class="v">' + esc(CONFIG.VENUE) + '</div>' +
         '<div style="font-size:.88rem;color:#5d6a7c">' + esc(CONFIG.VENUE_DETAIL) + '</div></div>' +
@@ -2437,10 +2437,10 @@ var qrcode = function() {
   document.title = 'Seat ' + seatId + ' · ' + CONFIG.COURSE + ' ticket';
 
   function seatMap(myRow, myNum, myDoor) {
-    var C = 22, G = 4, P = C + G, L = 34, AISLE = 30, TOP = 64;
+    var C = 22, G = 4, P = C + G, L = 54, AISLE = 30, TOP = 64;
     var xLeft = L, xCenter = xLeft + 6 * P + AISLE, xRight = xCenter + 12 * P + AISLE;
     var W = xRight + 6 * P + L - G, rows = 'ABCDEFGHIJKLMNO';
-    var H = TOP + 15 * P + 70;
+    var H = TOP + 15 * P + 16;
     var colX = function (n) { return n >= 19 ? xLeft + (24 - n) * P : n >= 7 ? xCenter + (18 - n) * P : xRight + (6 - n) * P; };
     var unusable = function (r, n) { return (r === 'O' && (n <= 6 || n >= 19)) || (r === 'A' && ((n >= 16 && n <= 18) || (n >= 7 && n <= 9))); };
     var s = '<svg viewBox="0 0 ' + W + ' ' + H + '" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Seat map with seat ' + myRow + myNum + ' highlighted" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">';
@@ -2463,12 +2463,12 @@ var qrcode = function() {
     [[24, '24'], [19, '19'], [18, '18'], [7, '7'], [6, '6'], [1, '1']].forEach(function (h) {
       s += '<text x="' + (colX(h[0]) + C / 2) + '" y="' + (TOP - 8) + '" font-size="9" text-anchor="middle" fill="#8793a5">' + h[1] + '</text>';
     });
-    // rear doors
-    var yDoor = TOP + 15 * P + 26;
-    [['left', xCenter - AISLE / 2], ['right', xRight - AISLE / 2]].forEach(function (d) {
+    // entrance doors: both sides of the room, level with row A, beside the stage
+    [['left', 4, 'start'], ['right', W - 12, 'end']].forEach(function (d) {
       var on = d[0] === myDoor;
-      s += '<rect x="' + (d[1] - 26) + '" y="' + yDoor + '" width="52" height="8" rx="2" fill="' + (on ? '#c4471b' : '#9aa6b6') + '"/>' +
-           '<text x="' + d[1] + '" y="' + (yDoor + 26) + '" font-size="11" text-anchor="middle" font-weight="' + (on ? 700 : 400) + '" fill="' + (on ? '#c4471b' : '#5d6a7c') + '">' + (on ? 'Your door' : 'Rear door') + '</text>';
+      var tx = d[0] === 'left' ? 4 : W - 4;
+      s += '<rect x="' + d[1] + '" y="' + (TOP - 6) + '" width="8" height="' + (C + 12) + '" rx="2" fill="' + (on ? '#c4471b' : '#9aa6b6') + '"/>' +
+           '<text x="' + tx + '" y="' + (TOP - 30) + '" font-size="11" text-anchor="' + d[2] + '" font-weight="' + (on ? 700 : 400) + '" fill="' + (on ? '#c4471b' : '#5d6a7c') + '">' + (on ? 'Your door' : 'Door') + '</text>';
     });
     if (mine) {
       s += '<rect class="pulse" x="' + (mine.x - 5) + '" y="' + (mine.y - 5) + '" width="' + (C + 10) + '" height="' + (C + 10) + '" rx="8" fill="none" stroke="#c4471b" stroke-width="3"/>' +
