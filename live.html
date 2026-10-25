@@ -125,7 +125,8 @@
   $('pin').value = store.get('pin');
 
   var DOORS = Date.UTC(2026, 9, 26, 5, 0, 0);       // 13:00 Hong Kong time (public)
-  var TEST_START = Date.UTC(2026, 9, 26, 5, 10, 0);  // default 13:10 HK; overridden by Board!B2
+  var TEST_START = Infinity;                         // set from Board!B2 (blank = wait for you to start it)
+  var STARTED = false;                                // once the timer is running, a blank B2 no longer stops it
   var TEST_MIN = 90;                                  // default; overridden by Board!B3
   // Preview: live.html?…&preview=13:09:45 pretends it is that Hong Kong time on Monday (clock only, data stays live).
   var OFFSET = 0;
@@ -138,9 +139,9 @@
   })();
   function nowMs() { return Date.now() + OFFSET; }
   function hkToUtc(hm) {
-    var m = /^(\d{1,2}):(\d{2})$/.exec(hm || ''); if (!m) return null;
-    var h = +m[1], mi = +m[2]; if (h > 23 || mi > 59) return null;
-    return Date.UTC(2026, 9, 26, h - 8, mi, 0);
+    var m = /^(\d{1,2}):(\d{2})(?::(\d{2}))?$/.exec(hm || ''); if (!m) return null;
+    var h = +m[1], mi = +m[2], sec = +(m[3] || 0); if (h > 23 || mi > 59 || sec > 59) return null;
+    return Date.UTC(2026, 9, 26, h - 8, mi, sec);
   }
   var POLL_MS = 8000;
   var seen = {}, first = true, failures = 0;
@@ -191,7 +192,10 @@
 
   function render(d) {
     if (first) buildMap(d.assigned || []);
-    var st = hkToUtc(String(d.start || '').trim()); if (st) TEST_START = st;
+    var raw = String(d.start || '').trim();
+    var st = hkToUtc(raw);
+    if (st) TEST_START = st;                        // a time (13:10 or 13:10:37) → start then
+    else if (!raw && !STARTED) TEST_START = Infinity; // blank → hold on "Please take your seat" until you start it
     var mins = parseInt(d.minutes, 10); if (mins > 0 && mins <= 600) TEST_MIN = mins;
     var code = String(d.code || '').trim();
     $('code').textContent = code;
@@ -241,30 +245,32 @@
   }
   function tick() {
     var now = nowMs(), box = $('clockBox'), end = TEST_START + TEST_MIN * 60000;
-    if (now < DOORS) {
-      document.body.classList.remove('testmode');
-      $('clock').textContent = fmt(DOORS - now);
-      $('clockLbl').textContent = 'until the test begins at 13:00';
-      box.classList.toggle('urgent', DOORS - now <= 5 * 60 * 1000);
-    } else if (now < TEST_START) {
-      document.body.classList.remove('testmode');
-      $('clock').textContent = '13:00';
-      $('clockLbl').textContent = 'Please take your seat · open MATCHA Writer';
-      box.classList.remove('urgent');
-    } else if (now < end) {
+    if (now >= TEST_START && now < end) {
+      STARTED = true;
       document.body.classList.add('testmode');
       $('timerLbl').textContent = 'Time remaining';
       $('timerT').textContent = fmt(end - now);
       $('timerSub').textContent = '';
       $('timer').classList.toggle('warn', end - now <= 10 * 60 * 1000);
       $('timer').classList.remove('done');
-    } else {
+    } else if (now >= end) {
+      STARTED = true;
       document.body.classList.add('testmode');
       $('timerLbl').textContent = '';
       $('timerT').textContent = 'Time is up';
       $('timerSub').textContent = '';
       $('timer').classList.add('warn');
       $('timer').classList.add('done');
+    } else if (now < DOORS) {
+      document.body.classList.remove('testmode');
+      $('clock').textContent = fmt(DOORS - now);
+      $('clockLbl').textContent = 'until the test begins at 13:00';
+      box.classList.toggle('urgent', DOORS - now <= 5 * 60 * 1000);
+    } else {
+      document.body.classList.remove('testmode');
+      $('clock').textContent = '13:00';
+      $('clockLbl').textContent = 'Please take your seat · open MATCHA Writer';
+      box.classList.remove('urgent');
     }
   }
 
